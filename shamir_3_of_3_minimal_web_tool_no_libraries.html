@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Shamir Secret Sharing 3-of-3 · v2 (Integrity)</title>
+  <style>
+    :root { --w: 920px; }
+    html,body{margin:0;padding:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#0b0c10;color:#f2f2f2}
+    .wrap{max-width:var(--w);margin:24px auto;padding:0 16px}
+    h1{font-size:20px;margin:0 0 8px}
+    p.note{opacity:.8;margin:.25rem 0 .75rem}
+    .card{background:#14161a;border:1px solid #2a2e35;border-radius:12px;padding:16px;margin:12px 0}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    .col{flex:1 1 280px}
+    textarea,input,select,button{width:100%;box-sizing:border-box;background:#0f1115;color:#eaeaea;border:1px solid #2a2e35;border-radius:10px;padding:10px;font-size:14px}
+    textarea{min-height:120px;resize:vertical}
+    .small{font-size:12px;opacity:.85}
+    .btn{cursor:pointer}
+    .btn:hover{filter:brightness(1.15)}
+    .muted{opacity:.75}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    .shares{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+    .ok{color:#8ef58e}
+    .err{color:#ff7a7a}
+    .inline{display:inline-flex;gap:8px;align-items:center}
+    .right{float:right}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#1d2026;border:1px solid #2a2e35;margin-left:6px;font-size:12px}
+    .warn{color:#ffd36b}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Shamir Secret Sharing 3-of-3
+    <span class="pill">GF(256)</span>
+    <span class="pill">SHA‑256 Integrity</span>
+    <span class="pill">v2</span>
+  </h1>
+  <p class="note small">本版本改进：① 禁止不安全随机回退；② 默认启用完整性校验（SHA‑256 封装）；③ 每份 share 含元信息头。纯前端、单文件、无第三方依赖。</p>
+
+  <div class="card" id="splitCard">
+    <h3>拆分（Split）</h3>
+    <div class="row">
+      <div class="col">
+        <label class="small">输入格式</label>
+        <select id="inFmt">
+          <option value="text">UTF‑8 文本</option>
+          <option value="hex">Hex（偶数字符，如 48656c6c6f）</option>
+        </select>
+      </div>
+      <div class="col">
+        <label class="small">X 值（固定 1,2,3）</label>
+        <input value="1,2,3" disabled />
+      </div>
+    </div>
+    <label class="small">要拆分的密文 / 明文</label>
+    <textarea id="secret" placeholder="输入要拆分的内容…"></textarea>
+    <div class="row">
+      <div class="col"><button id="btnSplit" class="btn">拆分出 3 份（3-of-3，含完整性校验）</button></div>
+    </div>
+    <div id="splitMsg" class="small muted"></div>
+    <div class="shares" id="sharesBox" style="margin-top:10px;display:none">
+      <div><label class="small">Share #1（x=1）<button class="btn right small" data-copy="s1">复制</button></label><textarea id="s1" class="mono" readonly></textarea></div>
+      <div><label class="small">Share #2（x=2）<button class="btn right small" data-copy="s2">复制</button></label><textarea id="s2" class="mono" readonly></textarea></div>
+      <div><label class="small">Share #3（x=3）<button class="btn right small" data-copy="s3">复制</button></label><textarea id="s3" class="mono" readonly></textarea></div>
+    </div>
+    <p class="small muted">分享格式：<span class="mono">SSS1;t=3;x=&lt;n&gt;;alg=GF256-0x11B;poly=quad:HEX</span>（兼容旧格式 <span class="mono">x:HEX</span>）。合并时会自动进行 SHA‑256 完整性校验。</p>
+  </div>
+
+  <div class="card" id="combineCard">
+    <h3>合并（Combine）</h3>
+    <div class="grid">
+      <div>
+        <label class="small">Share #1</label>
+        <input id="c1" class="mono" placeholder="粘贴 SSS1;...:HEX 或 x:HEX" />
+      </div>
+      <div>
+        <label class="small">Share #2</label>
+        <input id="c2" class="mono" placeholder="粘贴 SSS1;...:HEX 或 x:HEX" />
+      </div>
+      <div>
+        <label class="small">Share #3</label>
+        <input id="c3" class="mono" placeholder="粘贴 SSS1;...:HEX 或 x:HEX" />
+      </div>
+      <div class="row">
+        <div class="col"><button id="btnCombine" class="btn">合并出原文</button></div>
+      </div>
+      <div id="combineMsg" class="small muted"></div>
+      <div class="grid" id="outBox" style="display:none">
+        <div>
+          <label class="small">合并结果（文本尝试按 UTF‑8 解码）</label>
+          <textarea id="plainOut" readonly></textarea>
+        </div>
+        <div>
+          <label class="small">合并结果（Hex）<button class="btn right small" data-copy="hexOut">复制</button></label>
+          <textarea id="hexOut" class="mono" readonly></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>实现说明（点击展开）</summary>
+      <ul class="small">
+        <li>字段：逐字节在 <span class="mono">GF(2^8)</span>（不可约多项式 <span class="mono">x^8+x^4+x^3+x+1 (0x11B)</span>）上做运算。</li>
+        <li>3-of-3：每个字节用二次多项式 <span class="mono">a0 ^ a1·x ^ a2·x²</span>，固定 <span class="mono">x∈{1,2,3}</span>；其中 <span class="mono">a0</span> 为原字节，<span class="mono">a1,a2</span> 为安全随机字节。</li>
+        <li>合并：使用拉格朗日插值在 <span class="mono">x=0</span> 处求值（仅需 share 值，不需保存任何系数）。</li>
+        <li>完整性封装：拆分前构造 <span class="mono">payload = "SSS1" || len(4B BE) || data || SHA256(data)</span>；合并后验证哈希一致才显示结果。</li>
+        <li>随机性：严格要求 <span class="mono">crypto.getRandomValues</span> 可用；否则拒绝运行。</li>
+      </ul>
+    </details>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ===== Utils =====
+  const $ = sel => document.querySelector(sel);
+  const enc = new TextEncoder();
+  const dec = new TextDecoder();
+
+  function assert(cond, msg) { if (!cond) throw new Error(msg); }
+
+  // Strict secure randomness (no fallback)
+  const randBytes = (n) => {
+    const a = new Uint8Array(n);
+    if (!(globalThis.crypto && crypto.getRandomValues)) {
+      throw new Error('当前环境不支持安全随机数 (crypto.getRandomValues)。请在现代浏览器中离线使用。');
+    }
+    crypto.getRandomValues(a);
+    return a;
+  };
+
+  const toHex = (u8) => Array.from(u8, b=>b.toString(16).padStart(2,'0')).join('');
+  const fromHex = (hex) => {
+    const h = String(hex||'').replace(/\\s+/g,'').toLowerCase();
+    if (h.length%2!==0) throw new Error('Hex 长度必须为偶数');
+    const out = new Uint8Array(h.length/2);
+    for (let i=0;i<out.length;i++) {
+      const v = parseInt(h.slice(2*i,2*i+2),16);
+      if (Number.isNaN(v)) throw new Error('包含非法十六进制字符');
+      out[i]=v;
+    }
+    return out;
+  };
+  const concatU8 = (...arrs) => {
+    const len = arrs.reduce((s,a)=>s+a.length,0);
+    const out = new Uint8Array(len);
+    let o=0;
+    for (const a of arrs){ out.set(a,o); o+=a.length; }
+    return out;
+  };
+
+  async function sha256(u8) {
+    assert(globalThis.crypto && crypto.subtle, '当前环境不支持 WebCrypto (crypto.subtle)。');
+    const h = await crypto.subtle.digest('SHA-256', u8);
+    return new Uint8Array(h);
+  }
+
+  // Build integrity-protected payload: "SSS1" || len(4B BE) || data || SHA256(data)
+  async function buildPayload(dataU8) {
+    const magic = enc.encode('SSS1'); // 4 bytes
+    const len = dataU8.length >>> 0;
+    const lenArr = new Uint8Array(4);
+    lenArr[0] = (len>>>24)&0xFF; lenArr[1]=(len>>>16)&0xFF; lenArr[2]=(len>>>8)&0xFF; lenArr[3]=len&0xFF;
+    const h = await sha256(dataU8);
+    return concatU8(magic, lenArr, dataU8, h);
+  }
+
+  // Parse and verify payload; return {ok, data, err}
+  async function parsePayload(u8) {
+    try{
+      assert(u8.length >= 4+4+32, '数据长度不足');
+      const magic = String.fromCharCode(u8[0],u8[1],u8[2],u8[3]);
+      assert(magic === 'SSS1', '缺少完整性头 (SSS1)');
+      const L = (u8[4]<<24) | (u8[5]<<16) | (u8[6]<<8) | (u8[7]);
+      assert(L >= 0 && L <= (u8.length - 8 - 32), '长度字段非法');
+      const data = u8.subarray(8, 8+L);
+      const hash = u8.subarray(8+L, 8+L+32);
+      const h2 = await sha256(data);
+      const eq = (hash.length===h2.length) && hash.every((b,i)=>b===h2[i]);
+      assert(eq, 'SHA‑256 校验失败：数据已被篡改或 share 不匹配');
+      return { ok:true, data };
+    }catch(e){
+      return { ok:false, err: e.message || String(e) };
+    }
+  }
+
+  // ===== GF(256) arithmetic with AES polynomial 0x11B =====
+  const gfMul = (a,b) => {
+    let p = 0;
+    for (let i=0;i<8;i++) {
+      if (b & 1) p ^= a;
+      const hi = a & 0x80;
+      a = (a << 1) & 0xFF;
+      if (hi) a ^= 0x1b; // reduce by (x^8 + x^4 + x^3 + x + 1)
+      b >>= 1;
+    }
+    return p;
+  };
+  const gfPow = (a, e) => { // fast exp
+    let r = 1;
+    while (e>0) {
+      if (e & 1) r = gfMul(r,a);
+      a = gfMul(a,a);
+      e >>= 1;
+    }
+    return r;
+  };
+  const gfInv = (a) => {
+    if (a===0) throw new Error('0 没有乘法逆元');
+    return gfPow(a, 254); // a^(2^8-2)
+  };
+
+  // Evaluate y = a0 ^ a1*x ^ a2*x^2, byte-wise
+  const evalQuad = (a0, a1, a2, x) => (a0 ^ gfMul(a1,x) ^ gfMul(a2, gfMul(x,x))) & 0xFF;
+
+  // Lagrange coefficient at x=0 for index i among xs
+  const lagrangeAtZero = (xs, i) => {
+    let num = 1, den = 1;
+    const xi = xs[i];
+    for (let j=0;j<xs.length;j++) if (j!==i) {
+      num = gfMul(num, xs[j]);
+      const diff = xs[j] ^ xi; // subtraction == addition in GF(2^8)
+      if (diff===0) throw new Error('x 值重复，无法插值');
+      den = gfMul(den, diff);
+    }
+    return gfMul(num, gfInv(den));
+  };
+
+  // ===== UI helpers =====
+  const msgSplit = (html) => { $('#splitMsg').innerHTML = html || ''; };
+  const msgCombine = (html) => { $('#combineMsg').innerHTML = html || ''; };
+  const copyFrom = (id) => { const el = document.getElementById(id); el.select(); document.execCommand('copy'); };
+
+  // ===== Split =====
+  $('#btnSplit').addEventListener('click', async () => {
+    try{
+      msgSplit('');
+      const fmt = $('#inFmt').value;
+      const input = $('#secret').value;
+      if (!input) { msgSplit('<span class="err">请输入要拆分的内容。</span>'); return; }
+      const bytes = (fmt==='hex') ? fromHex(input) : enc.encode(input);
+
+      // Build integrity-protected payload
+      const payload = await buildPayload(bytes);
+
+      const a1 = randBytes(payload.length);
+      const a2 = randBytes(payload.length);
+      const xs = [1,2,3];
+      const shares = xs.map(x => new Uint8Array(payload.length));
+      for (let i=0;i<payload.length;i++) {
+        for (let k=0;k<xs.length;k++) {
+          shares[k][i] = evalQuad(payload[i], a1[i], a2[i], xs[k]);
+        }
+      }
+      // Share header metadata (human-readable, parseable)
+      const header = (x)=>`SSS1;t=3;x=${x};alg=GF256-0x11B;poly=quad:`;
+
+      $('#s1').value = header(1) + toHex(shares[0]);
+      $('#s2').value = header(2) + toHex(shares[1]);
+      $('#s3').value = header(3) + toHex(shares[2]);
+      $('#sharesBox').style.display = 'grid';
+      msgSplit('<span class="ok">已生成 3 份 share（含完整性校验元数据）。请分别妥善保存，3 份缺一不可。</span>');
+    }catch(e){
+      console.error(e); msgSplit('<span class="err">拆分失败：'+(e.message||e)+'</span>');
+    }
+  });
+
+  // copy buttons
+  document.addEventListener('click', (e)=>{
+    const btn = e.target.closest('[data-copy]');
+    if (!btn) return;
+    copyFrom(btn.getAttribute('data-copy'));
+    btn.textContent = '已复制';
+    setTimeout(()=>btn.textContent='复制',1000);
+  });
+
+  function parseShareString(s) {
+    const str = String(s||'').trim();
+    // v2 format: SSS1;...;x=<n>;...:HEX
+    let m = str.match(/^SSS1;[^:]*?x=([0-9]{1,3})(?:;[^:]*)*:(.+)$/i);
+    if (m) {
+      const x = parseInt(m[1],10);
+      const y = fromHex(m[2]);
+      if (!(x>=1 && x<=255)) throw new Error('x 需在 1..255');
+      return { x, y };
+    }
+    // v1 format: x:HEX
+    m = str.match(/^([0-9]{1,3})\s*:\s*([0-9a-fA-F\s]+)$/);
+    if (m) {
+      const x = parseInt(m[1],10);
+      if (!(x>=1 && x<=255)) throw new Error('x 需在 1..255');
+      const y = fromHex(m[2]);
+      return { x, y };
+    }
+    throw new Error('格式应为 SSS1;...;x=N:HEX 或 x:HEX');
+  }
+
+  // ===== Combine =====
+  $('#btnCombine').addEventListener('click', async () => {
+    try{
+      msgCombine('');
+      const s1 = parseShareString($('#c1').value);
+      const s2 = parseShareString($('#c2').value);
+      const s3 = parseShareString($('#c3').value);
+      const xs = [s1.x, s2.x, s3.x];
+      if (new Set(xs).size!==3) throw new Error('3 个 x 必须彼此不同');
+      const L = s1.y.length;
+      if (!(s2.y.length===L && s3.y.length===L)) throw new Error('3 份 share 的长度必须一致');
+
+      const lambdas = [0,1,2].map(i => lagrangeAtZero(xs, i));
+      const out = new Uint8Array(L);
+      for (let i=0;i<L;i++) {
+        const y1 = s1.y[i], y2 = s2.y[i], y3 = s3.y[i];
+        const t1 = gfMul(y1, lambdas[0]);
+        const t2 = gfMul(y2, lambdas[1]);
+        const t3 = gfMul(y3, lambdas[2]);
+        out[i] = (t1 ^ t2 ^ t3) & 0xFF; // evaluates f(0)
+      }
+
+      // Verify integrity and extract original data
+      const parsed = await parsePayload(out);
+      if (!parsed.ok) {
+        msgCombine('<span class="err">合并失败：'+parsed.err+'</span>');
+        $('#outBox').style.display = 'none';
+        return;
+      }
+      const data = parsed.data;
+      $('#plainOut').value = safeDecodeUtf8(data);
+      $('#hexOut').value = toHex(data);
+      $('#outBox').style.display = 'grid';
+      msgCombine('<span class="ok">合并成功，完整性校验通过（SHA‑256）。</span>');
+    }catch(e){
+      console.error(e); msgCombine('<span class="err">合并失败：'+(e.message||e)+'</span>');
+    }
+  });
+
+  function safeDecodeUtf8(u8){
+    try { return dec.decode(u8); } catch(_) { return '(无法按 UTF‑8 解码 — 请使用下方 Hex)'; }
+  }
+})();
+</script>
+</body>
+</html>
